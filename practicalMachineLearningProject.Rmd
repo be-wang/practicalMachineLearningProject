@@ -1,0 +1,100 @@
+# Coursera Practical Machine Learning Project
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).  
+
+The goal of this project is to predict the manner of performing unilateral dumbbell biceps curls based on data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The 5 possible methods include:  
+A: Exactly according to the specification  
+B: Throwing the elbows to the front  
+C: Lifting the dumbbell only halfway  
+D: Lowering the dumbbell only halfway  
+E: Throwing the hips to the front  
+
+## Load, partition, and select data
+First, we will load dependencies and download data.  
+```{r message=FALSE,warning=FALSE, comment=FALSE}
+library(caret)
+library(rpart)
+library(randomForest)
+library(lattice)
+library(ggplot2)
+set.seed(28)
+
+train <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"),
+                  header = T)
+test <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),
+                 header = T)
+```
+
+Partition training data to enable subsequent cross validation.  
+```{r}
+inTrain <- createDataPartition(train$classe, p=0.7, list=FALSE)
+trainData <- train[inTrain,]
+testData <- train[-inTrain,]
+```
+
+Prepare the data for analysis by 1) removing variables with little variance;  
+2) removing variables with excessvive NAs (90%); 3) removing data that, per intuition,
+would not be valuable for prediction  
+```{r}
+minVar <- nearZeroVar(trainData)
+trainData <- trainData[, -minVar]; testData <- testData[,-minVar]
+
+mostlyNA <- sapply(trainData, function(x) mean(is.na(x))) > 0.9
+trainData <- trainData[, !mostlyNA]; testData <- testData[,!mostlyNA]
+
+trainData <- trainData[, -(1:5)]; testData <- testData[, -(1:5)]
+```
+
+
+#Build models and assess performance
+We will use three methods to build a model on the training set (trainData).
+The model with the greatest accuracy when applied to the test set (testData) 
+will be selected to use on the final test set.  
+
+We will build 3 models with cross validation:   
+1. Decision tree (rpart)  
+2. Random Forest (rf)  
+3. Generalized Boosted Model (gbm)  
+
+```{r,cache=TRUE, results=FALSE, message=FALSE, warning=FALSE}
+modelRpart <- train(classe ~., data = trainData, trControl=trainControl(method='cv'), 
+                    method="rpart")
+modelRF <- train(classe ~., data = trainData, trControl=trainControl(method='cv'), 
+                 method="rf", ntree=100)
+modelGBM <- train(classe ~., data = trainData, trControl=trainControl(method='cv'), 
+                  method="gbm")
+```
+
+Next, we will use the 3 models to predict test cases, and identify the most accurate model 
+using confusion matrices.  
+```{r message=FALSE, comment=FALSE, warning=FALSE}
+predRpart <- predict(modelRpart, newdata=testData)
+cmRpart <- confusionMatrix(predRpart, testData$classe)
+
+predRF <- predict(modelRF, newdata=testData)
+cmRF <- confusionMatrix(predRF, testData$classe)
+
+predGBM <- predict(modelGBM, newdata=testData)
+cmGBM <- confusionMatrix(predGBM, testData$classe)
+
+plot(cmRpart$table, col = cmRpart$byClass, 
+     main = paste("Decision Tree - Accuracy =", round(cmRpart$overall['Accuracy'], 3)))
+plot(cmRF$table, col = cmRF$byClass, 
+     main = paste("Random Forest - Accuracy =", round(cmRF$overall['Accuracy'], 3)))
+plot(cmGBM$table, col = cmGBM$byClass, 
+     main = paste("GBM - Accuracy =", round(cmGBM$overall['Accuracy'], 3)))
+```
+<br>
+**It appears that the most accurate model is Random Forest (accuracy 99.677%, predicted 
+out-of-sample error 0.323%).**  
+
+## Prediction
+We will apply the random forest model to the testing set to predict classe.
+```{r}
+predictRFTest <- predict(modelRF, newdata=test)
+predictions <- data.frame(problem_id = test$problem_id, prediction = predictRFTest)
+predictions
+```
+
+
